@@ -1,0 +1,179 @@
+diff --git a/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-core/src/main/java/org/apache/hadoop/mapred/FileInputFormat.java b/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-core/src/main/java/org/apache/hadoop/mapred/FileInputFormat.java
+index 5e45b49..660582a 100644
+--- a/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-core/src/main/java/org/apache/hadoop/mapred/FileInputFormat.java
++++ b/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-core/src/main/java/org/apache/hadoop/mapred/FileInputFormat.java
+@@ -252,9 +252,11 @@ protected void addInputPathRecursively(List<FileStatus> result,
+   
+   private List<FileStatus> singleThreadedListStatus(JobConf job, Path[] dirs,
+       PathFilter inputFilter, boolean recursive) throws IOException {
++    LOG.debug("entrance to list status");
+     List<FileStatus> result = new ArrayList<FileStatus>();
+     List<IOException> errors = new ArrayList<IOException>();
+     for (Path p: dirs) {
++      LOG.debug(p.toString());
+       FileSystem fs = p.getFileSystem(job); 
+       FileStatus[] matches = fs.globStatus(p, inputFilter);
+       if (matches == null) {
+@@ -263,21 +265,29 @@ protected void addInputPathRecursively(List<FileStatus> result,
+         errors.add(new IOException("Input Pattern " + p + " matches 0 files"));
+       } else {
+         for (FileStatus globStat: matches) {
++          LOG.debug("match: "  + globStat.getPath());
+           if (globStat.isDirectory()) {
++            LOG.debug("directory : " + globStat.getPath());
+             RemoteIterator<LocatedFileStatus> iter =
+                 fs.listLocatedStatus(globStat.getPath());
++            LOG.debug("got list of located statuses");
+             while (iter.hasNext()) {
+               LocatedFileStatus stat = iter.next();
++              LOG.debug("located status: " + stat.getPath());
+               if (inputFilter.accept(stat.getPath())) {
++                LOG.debug("accepted: " + stat.getPath());
+                 if (recursive && stat.isDirectory()) {
++                  LOG.debug("recusrive and stat is directory: " + stat.getPath()); 
+                   addInputPathRecursively(result, fs, stat.getPath(),
+                       inputFilter);
+                 } else {
++                  LOG.debug("not recursive or not directory: " + stat.getPath());
+                   result.add(stat);
+                 }
+               }
+             }
+           } else {
++            LOG.debug("is not directory: " + globStat.getPath());
+             result.add(globStat);
+           }
+         }
+@@ -318,6 +328,7 @@ protected FileSplit makeSplit(Path file, long start, long length,
+     job.setLong(NUM_INPUT_FILES, files.length);
+     long totalSize = 0;                           // compute total size
+     for (FileStatus file: files) {                // check we have valid files
++      LOG.debug("file / directory is: " + file.getPath());
+       if (file.isDirectory()) {
+         throw new IOException("Not a file: "+ file.getPath());
+       }
+@@ -332,6 +343,7 @@ protected FileSplit makeSplit(Path file, long start, long length,
+     ArrayList<FileSplit> splits = new ArrayList<FileSplit>(numSplits);
+     NetworkTopology clusterMap = new NetworkTopology();
+     for (FileStatus file: files) {
++      LOG.debug("get splits(); " + file.getPath());
+       Path path = file.getPath();
+       long length = file.getLen();
+       if (length != 0) {
+@@ -347,7 +359,15 @@ protected FileSplit makeSplit(Path file, long start, long length,
+           long splitSize = computeSplitSize(goalSize, minSize, blockSize);
+ 
+           long bytesRemaining = length;
+-          while (((double) bytesRemaining)/splitSize > SPLIT_SLOP) {
++	  double slop = SPLIT_SLOP;
++
++	  if (isPushdown(job)) {
++	    // no ability to handle bigger than BLOCK_SIZE
++	    //reads when SQL pushdown is used
++	    slop = 1.0;
++	  }
++	  
++          while (((double) bytesRemaining)/splitSize > slop) {
+             String[][] splitHosts = getSplitHostsAndCachedHosts(blkLocations,
+                 length-bytesRemaining, splitSize, clusterMap);
+             splits.add(makeSplit(path, length-bytesRemaining, splitSize,
+@@ -378,6 +398,27 @@ protected FileSplit makeSplit(Path file, long start, long length,
+     return splits.toArray(new FileSplit[splits.size()]);
+   }
+ 
++  private boolean isPushdown(final JobConf job) {
++    final String filterPredicate = job.get("swift.filter.predicate","");
++    
++    if ((filterPredicate != null) && (filterPredicate.length() > 0) ){
++      LOG.warn("isPushdown returns true filterPredicate " + filterPredicate);
++      return true;
++    } else {
++      final String filterColumns   = job.get("swift.filter.columns","");
++
++      if ((filterColumns != null) && (filterColumns.length() > 0) ){
++	LOG.warn("isPushdown returns true filterColumns " + filterColumns);
++	return true;
++      }
++    }
++
++    // DEBUG only we force true since previous checks of filterPredicate & filterColumns are not good...
++    // return false;
++    return true;
++  }
++
++    
+   protected long computeSplitSize(long goalSize, long minSize,
+                                        long blockSize) {
+     return Math.max(minSize, Math.min(goalSize, blockSize));
+diff --git a/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-core/src/main/java/org/apache/hadoop/mapred/LineRecordReader.java b/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-core/src/main/java/org/apache/hadoop/mapred/LineRecordReader.java
+index ba075e5..2b5e461 100644
+--- a/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-core/src/main/java/org/apache/hadoop/mapred/LineRecordReader.java
++++ b/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-core/src/main/java/org/apache/hadoop/mapred/LineRecordReader.java
+@@ -99,12 +99,49 @@ public LineRecordReader(Configuration job, FileSplit split,
+       LineRecordReader.MAX_LINE_LENGTH, Integer.MAX_VALUE);
+     start = split.getStart();
+     end = start + split.getLength();
+-    final Path file = split.getPath();
++    //    final Path file = split.getPath();
++    Path file = split.getPath();
+     compressionCodecs = new CompressionCodecFactory(job);
+     codec = compressionCodecs.getCodec(file);
+ 
++    // Modify the file Path by appending the SQL pushdown related querry:
++    boolean isPushdown = false;
++    String filterPredicate = job.get("swift.filter.predicate","");
++    String filterColumns   = job.get("swift.filter.columns","");
++    
++    StringBuilder dataLocationURI = new StringBuilder();
++    if ((filterPredicate != null) && !filterPredicate.equals("")){
++        isPushdown = true;
++        dataLocationURI.
++	  append("?whereClause=").
++	  append(filterPredicate);
++	if ((filterColumns != null) && !filterColumns.equals(""))
++	  dataLocationURI.
++	    append(";selectedFields=").
++	    append(filterColumns);
++    } else if ((filterColumns != null) && !filterColumns.equals("")){
++        isPushdown = true;
++        dataLocationURI.
++	  append("?selectedFields=").
++	  append(filterColumns);
++    }
++    LOG.debug("Data location URI: " + dataLocationURI.toString());
++    if (dataLocationURI.length() > 0) {
++      String theString = dataLocationURI.toString();
++      file = new Path(file.toString() + theString);
++    }
++
++    file = new Path(file.toString());
++    
+     // open the file and seek to the start of the split
+     final FileSystem fs = file.getFileSystem(job);
++    LOG.debug("Going to set filter and projection clause");
++
++    // fs.getConf().set("swift.filter.predicate",
++    //     job.get("swift.filter.predicate",""));
++    // fs.getConf().set("swift.filter.columns", 
++    //     job.get("swift.filter.columns",""));
++
+     fileIn = fs.open(file);
+     if (isCompressedInput()) {
+       decompressor = CodecPool.getDecompressor(codec);
+@@ -127,11 +164,15 @@ public LineRecordReader(Configuration job, FileSplit split,
+       in = new SplitLineReader(fileIn, job, recordDelimiter);
+       filePosition = fileIn;
+     }
++    
+     // If this is not the first split, we always throw away first record
+     // because we always (except the last split) read one extra line in
+     // next() method.
+-    if (start != 0) {
++    if (!isPushdown && start != 0) {
++      LOG.warn("LineRecordReader JUMP: start=" + start);
+       start += in.readLine(new Text(), 0, maxBytesToConsume(start));
++    } else {
++      LOG.warn("LineRecordReader NO JUMP: start=" + start + " isPushdown = " + isPushdown);
+     }
+     this.pos = start;
+   }
