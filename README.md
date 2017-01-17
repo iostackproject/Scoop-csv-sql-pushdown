@@ -1,3 +1,31 @@
+# Spark SQL pushdown code
+
+# Repository goal:  permit to build the Spark SQL pushdown code
+
+
+This repository comprises the code and instructions to build the following components:
+spark-csv
+spark
+hadoop
+so that Spark SQL pushdown can be invoked against a Swift object store
+
+Important note: Spark SQL pushdown only for CSV objects in a swift object store
+for which the storlet middleware was installed (see https://github.com/openstack/storlets)
+and also when the "CSV Storlet was installed (see https://github.com/openstack/storlets/tree/master/StorletSamples/java/CsvStorlet ).
+
+# How to build the Spark SQL pushdown code:
+
+The Spark SQL pushdown code is build by cloning, patching and building the spark-csv, spark and hadoop projects.
+The BuildPushdownSpark.sh automates these tasks and will necessitate the three patch files included in this directory.
+For reference, we also included the modified java files of the three projects. They are not needed for the building the projects.
+
+The prerequisites for invoking BuildPushdownSpark.sh are:
+1. git 
+2. sbt version 0.13.9
+3. apache maven version 3.3.9
+4. protobuf version 2.5.0  ### beware that earlier or later version will probably not do the job
+
+
 # scoop-csv-sql-pushdown
 This class extends the CSV data source of Spark to pushdown SQL selections and projections.
 
@@ -7,25 +35,5 @@ Note that by now spark-csv is no longer a library of databrics but an integral p
 The base version of CsvRelation comes with a single implementation of the buildScan API which does not support any pushdown (neither columns nor rows).
 The basic modification of this version consists at adding the richer buildScan API with comes with the two arguments permitting to pushdown column projection and row selection.
 
-Following are the instructions to build the spark-csv package:
-1. git clone https://github.com/databricks/spark-csv
-2. cd spark-csv
-3. git checkout tags/v1.2.0
-4. git checkout -b "my-v1.2.0"
-5. replace the file src/main/scala/com/databricks/spark/csv/CsvRelation.scala with pushdown modified CsvRelation.scala
-
-Install the SBT tool to build the Spark CSV library by deploying the SBT tool:
-tar -xvf sbt-0.13.9.tgz
-
-Build the Spark CSV libraries:
-sbt/bin/sbt ++2.10.4 publish-m2
-
-Important note:
-This modified Spark CSV library is build thru SBT whereas the Spark is build with the maven tool.
-The way to build both the Spark and the Spark CSV library is to proceed in this order:
-1. Build the Spark code (with maven)
-2. Build the Spark CSV library as explained previously
-3. Rebuild the spark code while taking into account the modified Spark CSV library
-e.g.,  mvn -Pyarn -Phadoop-2.7.1 -Dhadoop.version=2.7.1 -DskipTests package
 
 
