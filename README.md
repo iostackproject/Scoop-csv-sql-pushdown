@@ -9,9 +9,9 @@ spark
 hadoop
 so that Spark SQL pushdown can be invoked against a Swift object store
 
-Important note: Spark SQL pushdown only for CSV objects in a swift object store
-for which the storlet middleware was installed (see https://github.com/openstack/storlets)
-and also when the "CSV Storlet was installed (see https://github.com/openstack/storlets/tree/master/StorletSamples/java/CsvStorlet ).
+Important note: Spark SQL pushdown is not standalone.  In order to work the following is nessessary at the swift object store
+1. the storlet middleware was installed (see https://github.com/openstack/storlets)
+2. the "CSV Storlet was deployed and installed (see https://github.com/openstack/storlets/tree/master/StorletSamples/java/CsvStorlet ).
 
 # How to build the Spark SQL pushdown code:
 
